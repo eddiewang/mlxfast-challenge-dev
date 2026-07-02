@@ -49,7 +49,7 @@ concurrency:
 jobs:
   timing:
     name: "tenki benchmark timing"
-    runs-on: tenki-macos-latest-large
+    runs-on: tenki-macos-latest-small
     timeout-minutes: 720
     env:
       # Private staging dir mirrors the official job so the R2 golden path is a
