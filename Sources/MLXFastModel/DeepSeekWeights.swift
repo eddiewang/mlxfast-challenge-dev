@@ -374,6 +374,14 @@ public struct DeepSeekWeightLoader {
         }
         let bridge = self.bridge
         let residentScales = self.residentExpertScales
+        // Snapshot the built-up work lists to immutable lets and box the
+        // non-Sendable side bank: concurrentPerform is synchronous and every
+        // worker only reads these, so this is race-free. The bindings satisfy
+        // the Swift 6 checker (a hard error on the tenki runner's Swift 6.3, a
+        // warning on Blacksmith) without changing behavior.
+        let workNames = names
+        let workIndices = indices
+        let sideBankBox = UncheckedSendableBox(sideBank)
         var results = [StagedExpertCode?](repeating: nil, count: keys.count)
         results.withUnsafeMutableBufferPointer { buffer in
             let sink = DecodePrefetchSink(buffer: buffer)
@@ -384,9 +392,9 @@ public struct DeepSeekWeightLoader {
                 // wires the lazy reshape/quant assembly into the graph.
                 // Byte-identical: same bytes, same array constructor.
                 guard
-                    let tensor = try? sideBank.materializedTensor(
-                        named: names[index],
-                        firstAxisIndex: indices[index]
+                    let tensor = try? sideBankBox.value.materializedTensor(
+                        named: workNames[index],
+                        firstAxisIndex: workIndices[index]
                     ),
                     let array = try? bridge.makeArray(from: tensor)
                 else {
@@ -396,8 +404,8 @@ public struct DeepSeekWeightLoader {
                 let scalesArray = Self.residentScalesArray(
                     residentScales: residentScales,
                     bridge: bridge,
-                    codeName: names[index],
-                    expertIndex: indices[index]
+                    codeName: workNames[index],
+                    expertIndex: workIndices[index]
                 )
                 sink.buffer[index] = StagedExpertCode(
                     tensor: tensor,
@@ -474,6 +482,14 @@ public struct DeepSeekWeightLoader {
         }
         let bridge = self.bridge
         let residentScales = self.residentExpertScales
+        // Same treatment as prefetchDecodeExpertCodes: snapshot the work lists
+        // and box `self` (read only for stagedSliceTensor) for the synchronous,
+        // read-only concurrentPerform workers. Race-free; satisfies the Swift 6
+        // checker (hard error on the tenki runner's Swift 6.3) with no behavior
+        // change.
+        let workNames = names
+        let workIndices = indices
+        let selfBox = UncheckedSendableBox(self)
         var results = [StagedExpertCode?](repeating: nil, count: keys.count)
         results.withUnsafeMutableBufferPointer { buffer in
             let sink = DecodePrefetchSink(buffer: buffer)
@@ -482,9 +498,9 @@ public struct DeepSeekWeightLoader {
                 // MLXArray concurrently; the compute thread then only wires the
                 // lazy reshape/quant assembly. Byte-identical to the serial path.
                 guard
-                    let tensor = self.stagedSliceTensor(
-                        recordName: names[index],
-                        expertIndex: indices[index]
+                    let tensor = selfBox.value.stagedSliceTensor(
+                        recordName: workNames[index],
+                        expertIndex: workIndices[index]
                     ),
                     let array = try? bridge.makeArray(from: tensor)
                 else {
@@ -493,8 +509,8 @@ public struct DeepSeekWeightLoader {
                 let scalesArray = Self.residentScalesArray(
                     residentScales: residentScales,
                     bridge: bridge,
-                    codeName: names[index],
-                    expertIndex: indices[index]
+                    codeName: workNames[index],
+                    expertIndex: workIndices[index]
                 )
                 sink.buffer[index] = StagedExpertCode(
                     tensor: tensor,
@@ -1565,4 +1581,15 @@ public struct StagedExpertCode {
 // disjoint and the unchecked Sendable conformance is sound.
 private struct DecodePrefetchSink: @unchecked Sendable {
     let buffer: UnsafeMutableBufferPointer<StagedExpertCode?>
+}
+
+// Carries a non-Sendable reference into a synchronous, read-only
+// `concurrentPerform` closure. Sound because concurrentPerform blocks until all
+// iterations finish (the reference cannot outlive the call) and the workers only
+// read through it. Used for the decode-prefetch side bank and loader `self`,
+// whose types live outside the editable surface and so cannot be annotated
+// Sendable directly.
+private struct UncheckedSendableBox<Value>: @unchecked Sendable {
+    let value: Value
+    init(_ value: Value) { self.value = value }
 }

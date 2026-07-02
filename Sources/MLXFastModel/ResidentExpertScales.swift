@@ -24,7 +24,12 @@ import MLXFastCore
 /// reports. Slices are Data views into the retained stacked buffer — the
 /// same file bytes the bank's firstAxisIndex read would return, by the
 /// bank's own slice arithmetic (byteLength / firstDimension).
-public final class ResidentExpertTensors {
+// @unchecked Sendable: the single stored property (`entries`) is an immutable
+// let set once in init, and reads only slice its Data, so sharing this into the
+// concurrentPerform decode-prefetch workers is race-free. The annotation states
+// that contract for the Swift 6 checker -- a hard error on the tenki runner's
+// Swift 6.3, a warning on Blacksmith. No runtime behavior changes.
+public final class ResidentExpertTensors: @unchecked Sendable {
     private struct Entry {
         let dtype: TensorDType
         let shape: [Int]

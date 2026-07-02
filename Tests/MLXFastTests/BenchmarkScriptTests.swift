@@ -362,7 +362,10 @@ func benchmarkWorkflowBenchmarksDispatchedRefWithoutSubmissionRef() throws {
     // enforce-trusted still pins repo + workflow_dispatch, now accepting the
     // dispatched ref; the guard script keeps main as its defense-in-depth default.
     #expect(workflow.contains("MLXFAST_TRUSTED_BENCHMARK_REF: ${{ github.ref }}"))
-    #expect(guardScript.contains("TRUSTED_REF=\"${MLXFAST_TRUSTED_BENCHMARK_REF:-refs/heads/main}\""))
+    // Fork/tenki POC: the guard script defaults the trusted ref to the actually
+    // dispatched ref (${GITHUB_REF}) so the benchmark can run on a personal fork
+    // branch, rather than pinning refs/heads/main.
+    #expect(guardScript.contains("TRUSTED_REF=\"${MLXFAST_TRUSTED_BENCHMARK_REF:-${GITHUB_REF}}\""))
 
     // Submission-branch runs still enforce the modifiable surface and the static
     // cheat review, and suppress submitted-process logs.
@@ -2041,7 +2044,9 @@ func validateSliceRangesJobRunsBeforeExpensiveSliceMachinesAndGatesThem() throws
     #expect(!validateRangesJob.contains("uses: actions/checkout"))
     #expect(!validateRangesJob.contains("environment:"))
     #expect(!validateRangesJob.contains("secrets."))
-    #expect(validateRangesJob.contains("runs-on: ubuntu-latest"))
+    // Fork/tenki POC: the cheap gate job runs on a tenki Linux runner rather
+    // than ubuntu-latest (see the runner swap on the tenki-runners branch).
+    #expect(validateRangesJob.contains("runs-on: tenki-standard-large-8c-16g"))
     #expect(validateRangesJob.contains("range_1"))
     #expect(validateRangesJob.contains("range_2"))
     #expect(validateRangesJob.contains("range_3"))

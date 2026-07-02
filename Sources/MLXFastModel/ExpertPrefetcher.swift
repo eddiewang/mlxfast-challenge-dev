@@ -13,7 +13,13 @@ import MLXFastCore
 /// `DeepSeekWeightLoader.expertLinearWeight` name/slice logic); only plain
 /// integers cross onto the background queue, which exclusively owns the
 /// per-shard file descriptors.
-public final class ExpertPrefetcher {
+// @unchecked Sendable: the background `queue` exclusively owns the per-shard
+// file descriptors and only plain integers cross onto it, so capturing `self`
+// (weakly) into the `queue.async` advisory closure is race-free. The annotation
+// states that contract for the Swift 6 concurrency checker -- a hard error on
+// newer toolchains (the tenki macOS runner's Swift 6.3), a warning on older
+// ones (the Blacksmith runner). No runtime behavior changes.
+public final class ExpertPrefetcher: @unchecked Sendable {
     struct ByteRange {
         let shard: String
         let offset: Int
@@ -72,12 +78,18 @@ public final class ExpertPrefetcher {
             return
         }
         ranges.sort { ($0.shard, $0.offset) < ($1.shard, $1.offset) }
+        // Bind to an immutable `let` before crossing onto the queue: the Swift 6
+        // checker (a hard error on the tenki runner's Swift 6.3) rejects
+        // capturing the mutable `var ranges` in a `@Sendable` closure, even
+        // though nothing mutates it after this point. ByteRange is a value type
+        // of String/Int, so the array is Sendable.
+        let sortedRanges = ranges
         // Weak capture so a queued advisory can never hold the last strong
         // reference: if it did, deinit would run ON this serial queue and its
         // queue.sync fd cleanup would self-deadlock. Once deinit is reachable,
         // pending advisories see nil and no-op before the fds close.
         queue.async { [weak self] in
-            self?.advise(ranges)
+            self?.advise(sortedRanges)
         }
     }
 

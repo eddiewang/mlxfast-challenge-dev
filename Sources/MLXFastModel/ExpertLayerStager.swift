@@ -22,8 +22,19 @@ import MLXFastCore
 /// loader's metrics: no LRU is mutated (capacity-0 banks never insert, which
 /// also makes them safe to use from this background thread) and every staged
 /// byte is recorded honestly on the same counters the benchmark reports.
-public final class ExpertLayerStager {
-    public struct LayerPlan {
+// @unchecked Sendable: all mutable state is guarded by `condition`
+// (see the "All three guarded by `condition`" fields below), so `self` is safe
+// to capture into the `queue.async` staging closure. The annotation makes that
+// hand-maintained contract explicit for the Swift 6 concurrency checker, which
+// is a hard error under newer toolchains (e.g. the tenki macOS runner's Swift
+// 6.3) and a warning under older ones (the Blacksmith runner) -- behavior is
+// identical either way.
+public final class ExpertLayerStager: @unchecked Sendable {
+    // Sendable: an immutable value of `Int` + `[String]`, so it is safe to
+    // capture into the `queue.async` staging closure. Explicit conformance is
+    // required by the Swift 6 concurrency checker on newer toolchains (the tenki
+    // macOS runner's Swift 6.3); older toolchains (Blacksmith) inferred it.
+    public struct LayerPlan: Sendable {
         public let layerIndex: Int
         public let recordNames: [String]
 
