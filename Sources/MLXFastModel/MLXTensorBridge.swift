@@ -8,7 +8,11 @@ public protocol MLXTensorBridge {
     func makeArray(from tensor: MaterializedTensor) throws -> Array
 }
 
-public struct MLXArrayTensorBridge: MLXTensorBridge {
+// Sendable: a stateless value type (no stored properties), so sharing it into
+// the concurrentPerform decode-prefetch workers is trivially race-free. Explicit
+// conformance is required by the Swift 6 checker on newer toolchains (the tenki
+// macOS runner's Swift 6.3); older toolchains (Blacksmith) inferred it.
+public struct MLXArrayTensorBridge: MLXTensorBridge, Sendable {
     public typealias Array = MLXArray
 
     public init() {}
