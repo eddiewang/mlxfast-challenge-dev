@@ -27,7 +27,7 @@ permissions:
 
 jobs:
   slice:
-    runs-on: blacksmith-12vcpu-macos-26
+    runs-on: tenki-macos-latest-large
     timeout-minutes: 360
     env:
       MLXFAST_PUBLIC_CORRECTNESS_GOLDEN_PATH: correctness_prompts/public_longcopy_gate_english_512_256.json

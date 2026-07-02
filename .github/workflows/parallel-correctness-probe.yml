@@ -110,7 +110,7 @@ jobs:
     # combine-parallel-correctness.sh's `own checked_steps + base-case total`
     # arithmetic must not be polluted by the unrelated --local-iterate smoke
     # check's own step count.
-    runs-on: blacksmith-12vcpu-macos-26
+    runs-on: tenki-macos-latest-large
     timeout-minutes: 360
     env:
       MLXFAST_PUBLIC_CORRECTNESS_GOLDEN_PATH: correctness_prompts/public_longcopy_gate_english_512_256.json
@@ -233,7 +233,7 @@ jobs:
     # ranges to miss part of the window (the class of bug covered by review
     # finding 2), a real full run over the same case would still check it and
     # the two verdicts would disagree.
-    runs-on: blacksmith-12vcpu-macos-26
+    runs-on: tenki-macos-latest-large
     timeout-minutes: 360
     env:
       MLXFAST_PUBLIC_CORRECTNESS_GOLDEN_PATH: correctness_prompts/public_longcopy_gate_english_512_256.json
@@ -334,7 +334,7 @@ jobs:
         machine1-check,
       ]
     if: always()
-    runs-on: ubuntu-latest
+    runs-on: tenki-standard-large-8c-16g
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5

@@ -72,7 +72,7 @@ jobs:
   validate-slice-ranges:
     name: "validate correctness slice ranges"
     if: ${{ inputs.run_benchmark }}
-    runs-on: ubuntu-latest
+    runs-on: tenki-standard-large-8c-16g
     timeout-minutes: 2
     env:
       MLXFAST_EXPECTED_CORRECTNESS_STEPS: "64"
@@ -175,7 +175,7 @@ jobs:
   # that mode.
   correctness-only:
     if: ${{ !inputs.run_benchmark }}
-    runs-on: blacksmith-12vcpu-macos-26
+    runs-on: tenki-macos-latest-large
     timeout-minutes: 720
     environment: benchmark-private-prompts
     env:
@@ -468,7 +468,7 @@ jobs:
         benchmark-timing,
         benchmark-gates,
       ]
-    runs-on: ubuntu-latest
+    runs-on: tenki-standard-large-8c-16g
     timeout-minutes: 15
     env:
       MLXFAST_EXPECTED_CORRECTNESS_STEPS: "64"

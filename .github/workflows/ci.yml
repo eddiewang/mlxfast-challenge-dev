@@ -16,7 +16,7 @@ permissions:
 
 jobs:
   swift:
-    runs-on: blacksmith-12vcpu-macos-26
+    runs-on: tenki-macos-latest-large
     timeout-minutes: 45
     env:
       CLANG_MODULE_CACHE_PATH: ${{ github.workspace }}/.build/clang-module-cache
