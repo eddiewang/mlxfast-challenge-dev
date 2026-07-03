@@ -103,6 +103,22 @@ jobs:
             --reference "${MLXFAST_REFERENCE_DIR}" \
             --output weights
 
+      - name: Public correctness gate
+        run: |
+          set -euo pipefail
+          public_golden="correctness_prompts/public_longcopy_gate_english_512_256.json"
+          public_golden_sha256="2a747bf797e16d58f5ffedacc0d4bf5ce0d14be00f2421dc04289a2154cb011d"
+          actual_hash="$(shasum -a 256 "${public_golden}" | awk '{print $1}')"
+          if [[ "${actual_hash}" != "${public_golden_sha256}" ]]; then
+            echo "tenki-benchmark: public correctness golden hash mismatch (${actual_hash})" >&2
+            exit 1
+          fi
+          .build/release/mlxfast-swift correctness \
+            --weights weights \
+            --golden "${public_golden}" \
+            > public-gate-report.json
+          cat public-gate-report.json
+
       - name: Prepare correctness golden (R2)
         if: ${{ !inputs.use_public_golden && env.MLXFAST_PRIVATE_PROMPTS_R2_PRESENT == '1' }}
         env:
@@ -183,6 +199,7 @@ jobs:
         with:
           name: tenki-benchmark-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
+            public-gate-report.json
             score.json
             score.local-iterate.json
             benchmark-integrity.json
