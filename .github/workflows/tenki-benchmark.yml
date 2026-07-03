@@ -42,7 +42,7 @@ permissions:
 
 # Mirror benchmark.yml: a duplicate dispatch on the same ref queues rather than
 # double-books the runner. Keyed on ref only (this workflow has a single mode).
-concurrency:
+# concurrency:
   # group: tenki-benchmark-${{ github.ref }}
   # cancel-in-progress: false
 
