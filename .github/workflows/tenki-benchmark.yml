@@ -1,0 +1,191 @@
+name: tenki-benchmark
+
+on:
+  workflow_dispatch:
+    inputs:
+      use_public_golden:
+        description: "Use the checked-in public timing fixture."
+        required: false
+        default: true
+        type: boolean
+      reference_download_jobs:
+        description: "Parallel shard downloads for setup.sh."
+        required: false
+        default: "12"
+        type: string
+      reference_min_free_gib:
+        description: "Minimum free GiB required before reference checkpoint download."
+        required: false
+        default: "170"
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  timing:
+    name: "tenki benchmark timing"
+    runs-on: tenki-macos-latest-large
+    timeout-minutes: 720
+    env:
+      MLXFAST_PRIVATE_DIR: /tmp/mlxfast-private-${{ github.run_id }}-${{ github.run_attempt }}-timing
+      MLXFAST_CORRECTNESS_GOLDEN_PATH: /tmp/mlxfast-private-${{ github.run_id }}-${{ github.run_attempt }}-timing/correctness_golden.json
+      MLXFAST_GPQA_REFERENCE_PATH: /tmp/mlxfast-private-${{ github.run_id }}-${{ github.run_attempt }}-timing/gpqa_reference_cases.json
+      MLXFAST_PRIVATE_PROMPTS_R2_PRESENT: ${{ (secrets.R2_ACCESS_KEY_ID != '' && secrets.R2_BUCKET_ENDPOINT != '' && secrets.R2_SECRET_ACCESS_KEY != '') && '1' || '0' }}
+      MLXFAST_CORRECTNESS_GOLDEN_R2_PATH: correctness_prompts/golden_prompt_benchmark_transcription_gate_english_512_256.json
+      MLXFAST_GPQA_R2_PATH: correctness_prompts/gpqa_reference_cases.json
+      MLXFAST_GPQA_CASE_COUNT: "5"
+      MLXFAST_GPQA_MAX_NEW_TOKENS: "10"
+      MLXFAST_REFERENCE_MANIFEST_PATH: fixtures/reference_deepseek_v4_flash_4bit.sha256
+      MLXFAST_REFERENCE_DIR: .cache/huggingface/hub/models--mlx-community--DeepSeek-V4-Flash-4bit/snapshots/main
+      MLXFAST_TRUSTED_REPOSITORY: ${{ github.repository }}
+      MLXFAST_TRUSTED_BENCHMARK_REF: ${{ github.ref }}
+      MLXFAST_TRUSTED_BENCHMARK_WORKFLOW: .github/workflows/tenki-benchmark.yml
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Enforce trusted workflow context
+        run: .github/scripts/enforce-trusted-benchmark-workflow.sh
+
+      - name: Show initial disk space
+        run: |
+          set -euo pipefail
+          echo "Workspace: ${GITHUB_WORKSPACE}"
+          echo "Home: ${HOME}"
+          df -h
+          df -h "${GITHUB_WORKSPACE}" "${HOME}"
+
+      - name: Probe runtime worker sandbox
+        run: .github/scripts/probe-runtime-worker-sandbox.sh
+
+      - name: Restore SwiftPM cache
+        id: restore_swiftpm_cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            .build/checkouts
+            .build/repositories
+            .build/artifacts
+            .build/workspace-state.json
+          key: swiftpm-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Package.swift', 'Package.resolved') }}
+          restore-keys: |
+            swiftpm-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Setup Swift harness and reference checkpoint
+        env:
+          MLXFAST_REFERENCE_BASE_URL: ${{ secrets.MLXFAST_REFERENCE_BASE_URL || 'https://ds4.darkbloom.ai/deepseek-v4-flash-4bit' }}
+          MLXFAST_REFERENCE_AUTH_HEADER: ${{ secrets.MLXFAST_REFERENCE_AUTH_HEADER }}
+          MLXFAST_REFERENCE_DOWNLOAD_JOBS: ${{ inputs.reference_download_jobs }}
+          MLXFAST_REFERENCE_MIN_FREE_GIB: ${{ inputs.reference_min_free_gib }}
+          MLXFAST_REFERENCE_POST_DOWNLOAD_FULL_VERIFY: "0"
+        run: ./setup.sh
+
+      - name: Save SwiftPM cache
+        if: ${{ steps.restore_swiftpm_cache.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            .build/checkouts
+            .build/repositories
+            .build/artifacts
+            .build/workspace-state.json
+          key: ${{ steps.restore_swiftpm_cache.outputs.cache-primary-key }}
+
+      - name: Transform reference checkpoint
+        run: |
+          set -euo pipefail
+          mkdir -p weights
+          MLXFAST_OFFLINE_WRITABLE_PATHS="${PWD}/weights" \
+            .github/scripts/run-offline.sh .build/release/mlxfast-swift transform \
+            --reference "${MLXFAST_REFERENCE_DIR}" \
+            --output weights
+
+      - name: Prepare correctness golden (R2)
+        if: ${{ !inputs.use_public_golden && env.MLXFAST_PRIVATE_PROMPTS_R2_PRESENT == '1' }}
+        env:
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_BUCKET_ENDPOINT: ${{ secrets.R2_BUCKET_ENDPOINT }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$(dirname "${MLXFAST_CORRECTNESS_GOLDEN_PATH}")"
+          .github/scripts/download-r2-object.sh \
+            "${MLXFAST_CORRECTNESS_GOLDEN_R2_PATH}" \
+            "${MLXFAST_CORRECTNESS_GOLDEN_PATH}"
+          .github/scripts/download-r2-object.sh \
+            "${MLXFAST_GPQA_R2_PATH}" \
+            "${MLXFAST_GPQA_REFERENCE_PATH}"
+          .build/release/mlxfast-swift attach-gpqa-gates \
+            --golden "${MLXFAST_CORRECTNESS_GOLDEN_PATH}" \
+            --gpqa "${MLXFAST_GPQA_REFERENCE_PATH}" \
+            --tokenizer weights \
+            --output "${MLXFAST_CORRECTNESS_GOLDEN_PATH}" \
+            --case-count "${MLXFAST_GPQA_CASE_COUNT}" \
+            --max-new-tokens "${MLXFAST_GPQA_MAX_NEW_TOKENS}"
+
+      - name: Fail if R2 golden requested but secrets missing
+        if: ${{ !inputs.use_public_golden && env.MLXFAST_PRIVATE_PROMPTS_R2_PRESENT != '1' }}
+        run: |
+          echo "::error::use_public_golden=false requires R2_ACCESS_KEY_ID, R2_BUCKET_ENDPOINT and R2_SECRET_ACCESS_KEY" >&2
+          exit 1
+
+      - name: Benchmark (public timing, no secrets)
+        if: ${{ inputs.use_public_golden }}
+        env:
+          MLXFAST_NOTE: "tenki-poc ${{ github.sha }} public-timing"
+          MLXFAST_SKIP_TRANSFORM: "1"
+          MLXFAST_CORRECTNESS_GOLDEN_PATH: ""
+        run: ./benchmark.sh --local-iterate
+
+      - name: Benchmark (official R2 golden)
+        if: ${{ !inputs.use_public_golden }}
+        env:
+          MLXFAST_NOTE: "tenki-poc ${{ github.sha }} r2-golden"
+          MLXFAST_SKIP_TRANSFORM: "1"
+          MLXFAST_OFFICIAL_BENCHMARK_RUN: "1"
+          MLXFAST_BENCHMARK_CORRECTNESS_STEPS: "0"
+          MLXFAST_BENCHMARK_CHECK_GATES: "0"
+          MLXFAST_BENCHMARK_SKIP_TIMED: "0"
+        run: ./benchmark.sh
+
+      - name: Summarize timing
+        if: always()
+        run: |
+          set -euo pipefail
+          score_file="score.json"
+          [[ -f score.local-iterate.json ]] && score_file="score.local-iterate.json"
+          if [[ ! -f "${score_file}" ]]; then
+            echo "tenki-benchmark: no score file produced" >&2
+            exit 1
+          fi
+          jq '{
+            prefill_seconds_per_token: .metrics.prefill_seconds_per_token,
+            decode_seconds_per_token: .metrics.decode_seconds_per_token,
+            prefill_speedup: .metrics.prefill_speedup,
+            decode_speedup: .metrics.decode_speedup,
+            benchmark_wall_seconds: .metrics.benchmark_wall_seconds,
+            peak_ram_gb: .metrics.peak_ram_gb,
+            score: .score
+          }' "${score_file}" | tee "${GITHUB_STEP_SUMMARY}.json"
+          {
+            echo "## Tenki benchmark timing"
+            echo '```json'
+            cat "${GITHUB_STEP_SUMMARY}.json"
+            echo '```'
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Upload timing result
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: tenki-benchmark-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            score.json
+            score.local-iterate.json
+            benchmark-integrity.json
+            benchmark-integrity.local-iterate.json
+          if-no-files-found: warn
+          retention-days: 30
