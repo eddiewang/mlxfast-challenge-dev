@@ -178,6 +178,7 @@ jobs:
         env:
           MLXFAST_NOTE: "tenki-poc ${{ github.sha }} public-timing"
           MLXFAST_SKIP_TRANSFORM: "1"
+          MLXFAST_CORRECTNESS_GOLDEN_PATH: ""
         run: ./benchmark.sh --local-iterate
 
       - name: Benchmark (official R2 golden)
