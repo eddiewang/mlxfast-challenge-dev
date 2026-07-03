@@ -74,7 +74,19 @@ jobs:
 
       - name: Enforce trusted workflow context
         run: .github/scripts/enforce-trusted-benchmark-workflow.sh
-
+      - name: Show initial disk space
+        run: |
+          set -euo pipefail
+          echo "Workspace: ${GITHUB_WORKSPACE}"
+          echo "Home: ${HOME}"
+          echo
+          df -h
+          echo
+          echo "Workspace filesystem:"
+          df -h "${GITHUB_WORKSPACE}"
+          echo
+          echo "Home filesystem:"
+          df -h "${HOME}"
       - name: Probe runtime worker sandbox
         run: .github/scripts/probe-runtime-worker-sandbox.sh
 
