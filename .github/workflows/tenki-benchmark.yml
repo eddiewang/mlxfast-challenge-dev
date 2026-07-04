@@ -50,12 +50,32 @@ jobs:
       - name: Enforce trusted workflow context
         run: .github/scripts/enforce-trusted-benchmark-workflow.sh
 
-      - name: Show initial disk space
+      - name: Show initial runner resources
         run: |
           set -euo pipefail
           echo "Workspace: ${GITHUB_WORKSPACE}"
           echo "Home: ${HOME}"
+          echo "CPU:"
+          echo "  logical: $(sysctl -n hw.logicalcpu 2>/dev/null || sysctl -n hw.ncpu)"
+          echo "  physical: $(sysctl -n hw.physicalcpu 2>/dev/null || echo unknown)"
+          echo "Memory:"
+          mem_bytes="$(sysctl -n hw.memsize)"
+          awk -v bytes="${mem_bytes}" 'BEGIN { printf "  total: %.1f GiB\n", bytes / 1024 / 1024 / 1024 }'
+          page_size="$(sysctl -n hw.pagesize)"
+          eval "$(
+            vm_stat | awk -F: '
+              /Pages free/ { gsub(/[^0-9]/, "", $2); print "free_pages=" $2 }
+              /Pages inactive/ { gsub(/[^0-9]/, "", $2); print "inactive_pages=" $2 }
+              /Pages speculative/ { gsub(/[^0-9]/, "", $2); print "speculative_pages=" $2 }
+            '
+          )"
+          available_pages="$(( ${free_pages:-0} + ${inactive_pages:-0} + ${speculative_pages:-0} ))"
+          available_bytes="$(( available_pages * page_size ))"
+          awk -v bytes="${available_bytes}" 'BEGIN { printf "  available_estimate: %.1f GiB\n", bytes / 1024 / 1024 / 1024 }'
+          top -l 1 -s 0 | grep '^PhysMem:' || true
+          echo "Disk:"
           df -h
+          echo "Workspace filesystem:"
           df -h "${GITHUB_WORKSPACE}" "${HOME}"
 
       - name: Probe runtime worker sandbox
