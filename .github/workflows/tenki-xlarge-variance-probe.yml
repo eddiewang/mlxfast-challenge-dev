@@ -64,7 +64,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        machine: ${{ fromJSON(inputs.machines || '[1,2,3,4,5]') }}
+        machine: ${{ fromJSON(inputs.machines || '[1,2,3,4,5,6,7,8,9,10,11,12]') }}
     runs-on: tenki-macos-latest-xlarge
     timeout-minutes: 360
     env:
