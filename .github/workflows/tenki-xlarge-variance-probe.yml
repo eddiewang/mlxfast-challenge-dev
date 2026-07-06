@@ -33,7 +33,7 @@ on:
       machines:
         description: 'JSON array of machine indices to run concurrently, e.g. "[1,2,3,4,5]".'
         required: false
-        default: "[1,2,3,4,5]"
+        default: "[1,2,3,4,5,6,7,8,9,10,11,12]"
         type: string
       reference_download_jobs:
         description: "Parallel shard downloads for setup.sh, per machine."
