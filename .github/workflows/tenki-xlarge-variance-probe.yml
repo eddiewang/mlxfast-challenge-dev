@@ -21,6 +21,7 @@ name: tenki-xlarge-variance-probe
 # the absolute value. Observed: tenki-xlarge exposes exactly 2 concurrent runners,
 # so a 5-machine matrix runs in ~3 waves.
 on:
+  workflow_dispatch:
   # push runs the branch's OWN copy (no default-branch requirement, unlike
   # workflow_dispatch), so the probe runs straight from its branch. push carries
   # no inputs, so every ${{ inputs.* }} falls back to its literal default; the
