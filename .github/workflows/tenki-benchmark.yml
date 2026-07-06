@@ -73,6 +73,22 @@ jobs:
           available_bytes="$(( available_pages * page_size ))"
           awk -v bytes="${available_bytes}" 'BEGIN { printf "  available_estimate: %.1f GiB\n", bytes / 1024 / 1024 / 1024 }'
           top -l 1 -s 0 | grep '^PhysMem:' || true
+          echo "GPU:"
+          gpu_report="$(system_profiler SPDisplaysDataType 2>/dev/null || true)"
+          if [[ -n "${gpu_report}" ]]; then
+            printf '%s\n' "${gpu_report}"
+            gpu_cores="$(
+              printf '%s\n' "${gpu_report}" |
+                awk -F': ' '/Total Number of Cores/ { sum += $2 } END { if (sum > 0) print sum; else print "unknown" }'
+            )"
+            echo "  total_cores_system_profiler: ${gpu_cores}"
+          else
+            echo "  system_profiler: unavailable"
+          fi
+          echo "Metal / accelerator hints:"
+          ioreg -l 2>/dev/null |
+            grep -Ei 'gpu-core-count|GPUCoreCount|AGX|Metal|AppleCLCD|AppleParavirtualizedGraphics' |
+            head -80 || true
           echo "Disk:"
           df -h
           echo "Workspace filesystem:"
