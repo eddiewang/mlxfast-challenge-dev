@@ -51,9 +51,9 @@ on:
         default: "baseline"
         type: string
 
-concurrency:
-  group: tenki-xlarge-variance-probe-${{ github.ref }}-${{ inputs.label || 'push' }}
-  cancel-in-progress: false
+# concurrency:
+#   group: tenki-xlarge-variance-probe-${{ github.ref }}-${{ inputs.label || 'push' }}
+#   cancel-in-progress: false
 
 permissions:
   contents: read
