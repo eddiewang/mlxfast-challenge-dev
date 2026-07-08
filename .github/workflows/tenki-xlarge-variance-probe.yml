@@ -28,6 +28,8 @@ on:
   push:
     branches:
       - tenki-runner-v2
+    paths-ignore:
+      - ".github/workflows/tenki-toolchain-info.yml"
   workflow_dispatch:
     inputs:
       machines:
@@ -91,6 +93,16 @@ jobs:
             echo "model=$(sysctl -n hw.model 2>/dev/null || true)"
             echo "boottime=$(sysctl -n kern.boottime 2>/dev/null || true)"
             echo "os=$(sw_vers -productVersion 2>/dev/null || true) build=$(sw_vers -buildVersion 2>/dev/null || true)"
+            echo "xcode_select=$(xcode-select -p 2>/dev/null || true)"
+            echo "xcodebuild_version=$(xcodebuild -version 2>/dev/null | tr '\n' ' ' || true)"
+            echo "swift_path=$(command -v swift 2>/dev/null || true)"
+            echo "swift_version=$(swift --version 2>/dev/null | tr '\n' ' ' || true)"
+            echo "swiftc_path=$(command -v swiftc 2>/dev/null || true)"
+            echo "swiftc_version=$(swiftc --version 2>/dev/null | tr '\n' ' ' || true)"
+            echo "xcrun_swift_path=$(xcrun --find swift 2>/dev/null || true)"
+            echo "xcrun_swift_version=$(xcrun swift --version 2>/dev/null | tr '\n' ' ' || true)"
+            echo "macos_sdk=$(xcrun --sdk macosx --show-sdk-version 2>/dev/null || true)"
+            echo "clang_version=$(clang --version 2>/dev/null | head -1 || true)"
             echo "started_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
             env | grep -iE '^(TENKI|RUNNER_NAME|RUNNER_ENVIRONMENT|IMAGEOS|IMAGEVERSION)' | sort || true
           } | tee host.txt
