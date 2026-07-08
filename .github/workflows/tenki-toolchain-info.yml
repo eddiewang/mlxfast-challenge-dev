@@ -1,0 +1,74 @@
+name: tenki-toolchain-info
+
+on:
+  push:
+    branches:
+      - tenki-runner-v2
+    paths:
+      - ".github/workflows/tenki-toolchain-info.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  toolchain:
+    name: print Tenki macOS toolchain
+    runs-on: tenki-macos-latest-xlarge
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+        with:
+          persist-credentials: false
+
+      - name: Print Swift/Xcode toolchain
+        run: |
+          set -uo pipefail
+
+          one_line() {
+            "$@" 2>/dev/null | tr '\n' ' ' | sed 's/[[:space:]]*$//' || true
+          }
+
+          {
+            echo "date_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            echo "hostname=$(hostname 2>/dev/null || true)"
+            echo "arch=$(uname -m 2>/dev/null || true)"
+            echo "model=$(sysctl -n hw.model 2>/dev/null || true)"
+            echo "ncpu=$(sysctl -n hw.ncpu 2>/dev/null || true)"
+            echo "memsize_bytes=$(sysctl -n hw.memsize 2>/dev/null || true)"
+            echo "os=$(sw_vers -productVersion 2>/dev/null || true)"
+            echo "os_build=$(sw_vers -buildVersion 2>/dev/null || true)"
+            echo "developer_dir=${DEVELOPER_DIR:-}"
+            echo "xcode_select=$(xcode-select -p 2>/dev/null || true)"
+            echo "xcodebuild_version=$(one_line xcodebuild -version)"
+            echo "swift_path=$(command -v swift 2>/dev/null || true)"
+            echo "swift_version=$(one_line swift --version)"
+            echo "swiftc_path=$(command -v swiftc 2>/dev/null || true)"
+            echo "swiftc_version=$(one_line swiftc --version)"
+            echo "xcrun_swift_path=$(xcrun --find swift 2>/dev/null || true)"
+            echo "xcrun_swift_version=$(one_line xcrun swift --version)"
+            echo "sourcekit_lsp_path=$(xcrun --find sourcekit-lsp 2>/dev/null || true)"
+            echo "sourcekit_lsp_version=$(one_line sourcekit-lsp --version)"
+            echo "clang_path=$(command -v clang 2>/dev/null || true)"
+            echo "clang_version=$(one_line clang --version)"
+            echo "macos_sdk_version=$(xcrun --sdk macosx --show-sdk-version 2>/dev/null || true)"
+            echo "macos_sdk_path=$(xcrun --sdk macosx --show-sdk-path 2>/dev/null || true)"
+            echo "package_swift_tools_version=$(sed -n '1s|// swift-tools-version:||p' Package.swift 2>/dev/null || true)"
+            env | grep -iE '^(DEVELOPER_DIR|TOOLCHAINS|TENKI|RUNNER_NAME|RUNNER_ENVIRONMENT|IMAGEOS|IMAGEVERSION)=' | sort || true
+          } | tee toolchain.txt
+
+          {
+            echo "## Tenki macOS Toolchain"
+            echo
+            echo '```text'
+            cat toolchain.txt
+            echo '```'
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Upload toolchain artifact
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: tenki-toolchain-info-${{ github.run_id }}
+          path: toolchain.txt
+          if-no-files-found: error
+          retention-days: 14
