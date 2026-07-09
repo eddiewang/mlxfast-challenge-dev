@@ -21,6 +21,7 @@ concurrency:
 
 permissions:
   contents: read
+  actions: read
 
 jobs:
   probe:
@@ -161,3 +162,162 @@ jobs:
           path: probe-out/vm-${{ matrix.vm }}.jsonl
           if-no-files-found: error
           retention-days: 3
+
+  summarize:
+    name: summarize macOS 15 vs 26
+    needs: [probe]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Download probe artifacts
+        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6.0.0
+        continue-on-error: true
+        with:
+          pattern: gemma-vm-noise-probe-${{ github.run_id }}-vm*
+          path: probe-results
+          merge-multiple: true
+
+      - name: Summarize timing comparison
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          import math
+          import os
+          import pathlib
+          import statistics
+
+          root = pathlib.Path("probe-results")
+          rows = []
+          for path in sorted(root.glob("vm-*.jsonl")):
+              for line in path.read_text().splitlines():
+                  if not line.strip():
+                      continue
+                  row = json.loads(line)
+                  label = row.get("runner_label", "")
+                  row["family"] = "macOS 26" if "tenki-macos-26-" in label else "macOS 15 latest"
+                  rows.append(row)
+
+          def is_number(value):
+              return isinstance(value, (int, float)) and math.isfinite(value)
+
+          def median(values):
+              return statistics.median(values) if values else None
+
+          def fmt(value):
+              return "n/a" if value is None else f"{value:.6f}"
+
+          def family_rows(family):
+              return [row for row in rows if row["family"] == family]
+
+          def metric_values(items, key):
+              return [row[key] for row in items if is_number(row.get(key))]
+
+          def stats(items, key):
+              values = metric_values(items, key)
+              if not values:
+                  return {"count": 0, "median": None, "min": None, "max": None}
+              return {
+                  "count": len(values),
+                  "median": median(values),
+                  "min": min(values),
+                  "max": max(values),
+              }
+
+          families = ["macOS 15 latest", "macOS 26"]
+          summary = {
+              family: {
+                  "rows": len(family_rows(family)),
+                  "vms": sorted({row.get("vm") for row in family_rows(family)}),
+                  "decode": stats(family_rows(family), "decode"),
+                  "prefill": stats(family_rows(family), "prefill"),
+              }
+              for family in families
+          }
+
+          latest_decode = summary["macOS 15 latest"]["decode"]["median"]
+          mac26_decode = summary["macOS 26"]["decode"]["median"]
+          ratio = None
+          delta = None
+          if latest_decode and mac26_decode:
+              ratio = mac26_decode / latest_decode
+              delta = (ratio - 1.0) * 100.0
+
+          out = []
+          out.append("# Gemma Fresh VM Timing")
+          out.append("")
+          out.append(f"Run: `{os.environ.get('GITHUB_RUN_ID', '')}`")
+          out.append("")
+          out.append("Lower seconds/token is better.")
+          out.append("")
+          out.append("## OS Comparison")
+          out.append("")
+          out.append("| Group | VMs | Valid decode samples | Decode median | Decode min | Decode max | Prefill median |")
+          out.append("| --- | ---: | ---: | ---: | ---: | ---: | ---: |")
+          for family in families:
+              item = summary[family]
+              decode = item["decode"]
+              prefill = item["prefill"]
+              out.append(
+                  f"| {family} | {len(item['vms'])} | {decode['count']} | "
+                  f"{fmt(decode['median'])} | {fmt(decode['min'])} | {fmt(decode['max'])} | "
+                  f"{fmt(prefill['median'])} |"
+              )
+          out.append("")
+          if ratio is not None and delta is not None:
+              winner = "macOS 26" if ratio < 1 else "macOS 15 latest"
+              out.append(
+                  f"Decode median ratio `macOS 26 / macOS 15 latest`: `{ratio:.4f}` "
+                  f"({delta:+.2f}%). Faster group: **{winner}**."
+              )
+          else:
+              out.append("Decode median ratio unavailable because one group has no valid decode samples.")
+          out.append("")
+          out.append("## Per-VM Medians")
+          out.append("")
+          out.append("| VM | Group | Valid samples | Decode median | Decode min | Decode max | Prefill median |")
+          out.append("| ---: | --- | ---: | ---: | ---: | ---: | ---: |")
+          for vm in sorted({row.get("vm") for row in rows if row.get("vm") is not None}):
+              items = [row for row in rows if row.get("vm") == vm]
+              label = items[0].get("family", "unknown") if items else "unknown"
+              decode = stats(items, "decode")
+              prefill = stats(items, "prefill")
+              out.append(
+                  f"| {vm} | {label} | {decode['count']} | {fmt(decode['median'])} | "
+                  f"{fmt(decode['min'])} | {fmt(decode['max'])} | {fmt(prefill['median'])} |"
+              )
+          out.append("")
+          out.append("## Raw Samples")
+          out.append("")
+          out.append("| VM | Group | Repeat | Decode | Prefill |")
+          out.append("| ---: | --- | ---: | ---: | ---: |")
+          for row in sorted(rows, key=lambda item: (item.get("vm", 0), item.get("i", 0))):
+              out.append(
+                  f"| {row.get('vm', '')} | {row.get('family', '')} | {row.get('i', '')} | "
+                  f"{fmt(row.get('decode'))} | {fmt(row.get('prefill'))} |"
+              )
+
+          if not rows:
+              out = [
+                  "# Gemma Fresh VM Timing",
+                  "",
+                  "No probe artifacts were available for this run.",
+              ]
+
+          markdown = "\n".join(out) + "\n"
+          pathlib.Path("gemma-summary.md").write_text(markdown)
+          pathlib.Path("gemma-summary.json").write_text(json.dumps(summary, indent=2, sort_keys=True) + "\n")
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as handle:
+              handle.write(markdown)
+          PY
+
+      - name: Upload summary artifact
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: gemma-vm-noise-probe-${{ github.run_id }}-summary
+          path: |
+            gemma-summary.md
+            gemma-summary.json
+          if-no-files-found: error
+          retention-days: 14
