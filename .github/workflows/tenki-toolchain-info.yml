@@ -29,6 +29,10 @@ jobs:
             "$@" 2>/dev/null | tr '\n' ' ' | sed 's/[[:space:]]*$//' || true
           }
 
+          disk_available_bytes() {
+            df -Pk "$1" 2>/dev/null | awk 'NR == 2 { printf "%.0f\n", $4 * 1024 }' || true
+          }
+
           {
             echo "date_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
             echo "hostname=$(hostname 2>/dev/null || true)"
@@ -54,7 +58,18 @@ jobs:
             echo "macos_sdk_version=$(xcrun --sdk macosx --show-sdk-version 2>/dev/null || true)"
             echo "macos_sdk_path=$(xcrun --sdk macosx --show-sdk-path 2>/dev/null || true)"
             echo "package_swift_tools_version=$(sed -n '1s|// swift-tools-version:||p' Package.swift 2>/dev/null || true)"
+            echo "workspace_disk_available_bytes=$(disk_available_bytes "${GITHUB_WORKSPACE}")"
+            echo "home_disk_available_bytes=$(disk_available_bytes "${HOME}")"
             env | grep -iE '^(DEVELOPER_DIR|TOOLCHAINS|TENKI|RUNNER_NAME|RUNNER_ENVIRONMENT|IMAGEOS|IMAGEVERSION)=' | sort || true
+            echo
+            echo "[disk_all]"
+            df -h || true
+            echo
+            echo "[disk_workspace]"
+            df -h "${GITHUB_WORKSPACE}" || true
+            echo
+            echo "[disk_home]"
+            df -h "${HOME}" || true
           } | tee toolchain.txt
 
           {
