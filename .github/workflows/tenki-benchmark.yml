@@ -140,6 +140,10 @@ jobs:
             --output weights
 
       - name: Public correctness gate
+        env:
+          # Anup's checked-in GPQA reference (calibrated for tenki) has a single
+          # case; the official R2 set has 5. Match the file we ship.
+          MLXFAST_PUBLIC_GPQA_CASE_COUNT: "1"
         run: |
           set -euo pipefail
           public_golden="correctness_prompts/public_longcopy_gate_english_512_256.json"
@@ -149,9 +153,28 @@ jobs:
             echo "tenki-benchmark: public correctness golden hash mismatch (${actual_hash})" >&2
             exit 1
           fi
+
+          # Attach the checked-in public GPQA behavior gate (no R2 needed) so the
+          # public gate exercises the same teacher-forced + GPQA-behavior shape as
+          # the official golden, using Anup's tenki-calibrated reference.
+          gate_golden="${public_golden}"
+          public_gpqa="correctness_prompts/public_gpqa_reference_tenki.json"
+          if [[ -f "${public_gpqa}" ]]; then
+            gate_golden="${RUNNER_TEMP}/public_golden_with_gpqa.json"
+            .build/release/mlxfast-swift attach-gpqa-gates \
+              --golden "${public_golden}" \
+              --gpqa "${public_gpqa}" \
+              --tokenizer weights \
+              --output "${gate_golden}" \
+              --case-count "${MLXFAST_PUBLIC_GPQA_CASE_COUNT}" \
+              --max-new-tokens "${MLXFAST_GPQA_MAX_NEW_TOKENS}"
+          else
+            echo "tenki-benchmark: no checked-in public GPQA reference; teacher-forced gate only" >&2
+          fi
+
           .build/release/mlxfast-swift correctness \
             --weights weights \
-            --golden "${public_golden}" \
+            --golden "${gate_golden}" \
             > public-gate-report.json
           cat public-gate-report.json
 

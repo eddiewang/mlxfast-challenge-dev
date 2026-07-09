@@ -1,0 +1,25 @@
+{
+  "cases" : [
+    {
+      "accepted_responses" : [
+
+      ],
+      "accepted_token_sequences" : [
+        [
+          334
+        ]
+      ],
+      "answer_key" : "A",
+      "domain" : "Test",
+      "id" : "test-001",
+      "needs_reference_output" : false,
+      "prompt" : "Respond with only the letter A",
+      "source_row_id" : "test",
+      "subdomain" : "test"
+    }
+  ],
+  "needs_reference_output" : false,
+  "note" : "This is the updated test file shape. Fill accepted_token_sequences.",
+  "status" : "calibrated_reference_outputs_tenki",
+  "version" : 1
+}
