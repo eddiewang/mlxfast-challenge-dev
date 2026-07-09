@@ -90,17 +90,30 @@ jobs:
 
       - name: Setup Swift harness and reference checkpoint
         env:
-          MLXFAST_REFERENCE_BASE_URL: https://huggingface.co/mlx-community/gemma-4-31b-4bit/resolve/main
-          MLXFAST_REFERENCE_DOWNLOAD_JOBS: "12"
-          MLXFAST_REFERENCE_MIN_FREE_GIB: "40"
-          MLXFAST_REFERENCE_POST_DOWNLOAD_FULL_VERIFY: "0"
-          MLXFAST_REFERENCE_HASH_VERIFY: "0"
+          MLXFAST_REFERENCE_MODEL_REPO: mlx-community/gemma-4-31b-4bit
+          MLXFAST_SKIP_WEIGHTS_DOWNLOAD: "1"
         run: |
           set -euo pipefail
-          if [[ ! -f "${MLXFAST_REFERENCE_DIR}/config.json" ]]; then
-            echo "::error::baked Gemma checkpoint missing at ${MLXFAST_REFERENCE_DIR}" >&2
-            exit 1
-          fi
+          missing=0
+          while read -r expected_hash expected_size relative_path extra; do
+            [[ -z "${expected_hash:-}" || "${expected_hash}" == \#* ]] && continue
+            file="${MLXFAST_REFERENCE_DIR}/${relative_path}"
+            if [[ -n "${extra:-}" || -z "${expected_size:-}" || -z "${relative_path:-}" ]]; then
+              echo "::error::malformed manifest line for ${relative_path:-unknown}" >&2
+              exit 1
+            fi
+            if [[ ! -f "${file}" ]]; then
+              echo "::error::baked Gemma checkpoint missing ${relative_path} at ${MLXFAST_REFERENCE_DIR}" >&2
+              missing=1
+              continue
+            fi
+            actual_size="$(wc -c < "${file}" | tr -d ' ')"
+            if [[ "${actual_size}" != "${expected_size}" ]]; then
+              echo "::error::baked Gemma checkpoint size mismatch for ${relative_path}: expected ${expected_size}, got ${actual_size}" >&2
+              missing=1
+            fi
+          done < "${MLXFAST_REFERENCE_MANIFEST_PATH}"
+          [[ "${missing}" == "0" ]]
           ./setup.sh
 
       - name: Transform reference checkpoint
