@@ -53,6 +53,8 @@ jobs:
     steps:
       - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
         with:
+          repository: Layr-Labs/mlxfast-challenge-dev
+          ref: 40f9917e2908fca727e77d01a6b9b9f2cf7653d0
           persist-credentials: false
 
       - name: Host identity + VM freshness
@@ -60,6 +62,8 @@ jobs:
           set -uo pipefail
           boot=$(sysctl -n kern.boottime 2>/dev/null | grep -oE 'sec = [0-9]+' | grep -oE '[0-9]+' | head -1)
           now=$(date +%s)
+          echo "source_repo=Layr-Labs/mlxfast-challenge-dev"
+          echo "source_ref=$(git rev-parse HEAD 2>/dev/null || true)"
           echo "runner_label=${{ matrix.runner_label }}"
           echo "vm=${{ matrix.vm }} uptime_s=$(( now - ${boot:-now} )) (small => fresh VM)"
           sw_vers || true
