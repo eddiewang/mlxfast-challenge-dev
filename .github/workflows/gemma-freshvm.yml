@@ -1,8 +1,8 @@
 name: gemma-vm-noise-probe
 
-# DIAGNOSTIC (dispatch-only, NOT scored). Measures the structure of tenki decode
-# timing noise at the official 128-step cadence to compare latest xlarge against
-# macOS 26 xlarge fresh VMs.
+# DIAGNOSTIC (NOT scored). Measures Gemma timing noise with the public
+# local-iterate fixture to compare latest xlarge against macOS 26 xlarge fresh
+# VMs without private R2 prompts or protected environments.
 on:
   push:
     branches:
@@ -24,7 +24,7 @@ permissions:
 
 jobs:
   probe:
-    name: "vm noise probe 128-step (${{ matrix.runner_label }} vm ${{ matrix.vm }})"
+    name: "gemma public probe (${{ matrix.runner_label }} vm ${{ matrix.vm }})"
     strategy:
       fail-fast: false
       matrix:
@@ -43,18 +43,11 @@ jobs:
             runner_label: tenki-macos-26-xlarge
     runs-on: ${{ matrix.runner_label }}
     timeout-minutes: 90
-    environment: benchmark-private-prompts
     env:
-      MLXFAST_OFFICIAL_BENCHMARK_RUN: "1"
-      MLXFAST_PRIVATE_PROMPTS_R2_PRESENT: ${{ (secrets.R2_ACCESS_KEY_ID != '' && secrets.R2_BUCKET_ENDPOINT != '' && secrets.R2_SECRET_ACCESS_KEY != '') && '1' || '0' }}
-      MLXFAST_CORRECTNESS_GOLDEN_R2_PATH: correctness_prompts/golden_prompt_benchmark_transcription_gate_english_512_256-gemma.json
-      MLXFAST_CORRECTNESS_GOLDEN_PATH: /tmp/mlxfast-probe-${{ github.run_id }}-${{ github.run_attempt }}/oracle.json
+      MLXFAST_PUBLIC_CORRECTNESS_GOLDEN_PATH: correctness_prompts/public_longcopy_gate_english_512_256.json
       MLXFAST_REFERENCE_MANIFEST_PATH: fixtures/reference_gemma_4_31b_4bit.sha256
       MLXFAST_REFERENCE_DIR: /Users/runner/.cache/huggingface/hub/models--mlx-community--gemma-4-31b-4bit/snapshots/main
       MLXFAST_TRUSTED_BENCHMARK_REF: ${{ github.ref }}
-      MLXFAST_BENCHMARK_CORRECTNESS_STEPS: "0"
-      MLXFAST_BENCHMARK_CHECK_GATES: "0"
-      MLXFAST_BENCHMARK_SKIP_TIMED: "0"
       REPEATS: ${{ inputs.repeats }}
       OUT_DIR: probe-out
     steps:
@@ -75,12 +68,11 @@ jobs:
           sysctl -n hw.memsize 2>/dev/null || true
           df -h
 
-      - name: Check correctness golden source
+      - name: Check public correctness fixture
         run: |
           set -euo pipefail
-          mkdir -p "$(dirname "${MLXFAST_CORRECTNESS_GOLDEN_PATH}")"
-          if [[ "${MLXFAST_PRIVATE_PROMPTS_R2_PRESENT}" != "1" ]]; then
-            echo "::error::probe requires private R2 secrets for the 128-step timed oracle" >&2
+          if [[ ! -f "${MLXFAST_PUBLIC_CORRECTNESS_GOLDEN_PATH}" ]]; then
+            echo "::error::public correctness fixture missing at ${MLXFAST_PUBLIC_CORRECTNESS_GOLDEN_PATH}" >&2
             exit 1
           fi
 
@@ -111,24 +103,6 @@ jobs:
           fi
           ./setup.sh
 
-      - name: Prepare timed oracle (R2)
-        env:
-          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          R2_BUCKET_ENDPOINT: ${{ secrets.R2_BUCKET_ENDPOINT }}
-          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-        run: |
-          set -euo pipefail
-          .github/scripts/download-r2-object.sh \
-            "${MLXFAST_CORRECTNESS_GOLDEN_R2_PATH}" \
-            "${MLXFAST_CORRECTNESS_GOLDEN_PATH}"
-          actual_hash="$(shasum -a 256 "${MLXFAST_CORRECTNESS_GOLDEN_PATH}" | awk '{print $1}')"
-          actual_bytes="$(wc -c < "${MLXFAST_CORRECTNESS_GOLDEN_PATH}" | tr -d ' ')"
-          {
-            echo "MLXFAST_EXPECTED_CORRECTNESS_GOLDEN_SHA256=${actual_hash}"
-            echo "MLXFAST_EXPECTED_CORRECTNESS_GOLDEN_BYTES=${actual_bytes}"
-          } >> "${GITHUB_ENV}"
-          echo "probe: timed oracle ${actual_hash} bytes=${actual_bytes}"
-
       - name: Transform reference checkpoint
         run: |
           set -euo pipefail
@@ -137,7 +111,7 @@ jobs:
             .github/scripts/run-offline.sh .build/release/mlxfast-swift transform \
             --reference "${MLXFAST_REFERENCE_DIR}" --output weights
 
-      - name: Repeated OFFICIAL 128-step timed decode (within-VM jitter + warming)
+      - name: Repeated public local-iterate timing (within-VM jitter + warming)
         run: |
           set -euo pipefail
           mkdir -p "${OUT_DIR}"
@@ -146,10 +120,14 @@ jobs:
           n="${REPEATS:-8}"
           for i in $(seq 1 "${n}"); do
             sp="/tmp/mlxfast-probe-${{ github.run_id }}-${{ github.run_attempt }}/score-${i}.json"
-            rm -f "$sp"
+            integ="/tmp/mlxfast-probe-${{ github.run_id }}-${{ github.run_attempt }}/integ-${i}.json"
+            rm -f "$sp" "$integ"
             MLXFAST_SCORE_PATH="$sp" \
-              MLXFAST_INTEGRITY_PATH="/tmp/mlxfast-probe-${{ github.run_id }}-${{ github.run_attempt }}/integ-${i}.json" \
-              ./benchmark.sh >/dev/null 2>&1 || true
+              MLXFAST_INTEGRITY_PATH="$integ" \
+              MLXFAST_SKIP_TRANSFORM="1" \
+              MLXFAST_WEIGHTS_PATH=weights \
+              MLXFAST_NOTE="gemma-vm-noise-probe ${{ matrix.runner_label }} vm=${{ matrix.vm }} repeat=${i}" \
+              ./benchmark.sh --local-iterate >/dev/null 2>&1 || true
             d=$(jq -r '.metrics.decode_seconds_per_token // empty' "$sp" 2>/dev/null || echo "")
             p=$(jq -r '.metrics.prefill_seconds_per_token // empty' "$sp" 2>/dev/null || echo "")
             echo "{\"vm\":${{ matrix.vm }},\"runner_label\":\"${{ matrix.runner_label }}\",\"i\":${i},\"prefill\":${p:-null},\"decode\":${d:-null}}" | tee -a "${OUT}"
