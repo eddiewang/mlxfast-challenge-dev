@@ -30,6 +30,8 @@ on:
       - tenki-runner-v2
     paths-ignore:
       - ".github/workflows/tenki-toolchain-info.yml"
+      - ".github/workflows/gemma-freshvm.yml"
+      - ".github/workflows/tenki-xlarge-variance-probe.yml"
   workflow_dispatch:
     inputs:
       machines:

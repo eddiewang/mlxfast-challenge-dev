@@ -4,6 +4,11 @@ name: gemma-vm-noise-probe
 # timing noise at the official 128-step cadence to compare latest xlarge against
 # macOS 26 xlarge fresh VMs.
 on:
+  push:
+    branches:
+      - tenki-runner-v2
+    paths:
+      - ".github/workflows/gemma-freshvm.yml"
   workflow_dispatch:
     inputs:
       repeats:
